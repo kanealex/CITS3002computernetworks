@@ -1,0 +1,8 @@
+server--> looping through:
+    new clients joining
+        add to game? maybe add to queue.
+    clients disconnecting
+        possible timeouts? remove from game
+    clients sending data
+        what to do with that data: add to buffer, apply to game.
+    updating game state to all clients
