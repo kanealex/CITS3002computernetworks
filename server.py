@@ -44,9 +44,10 @@ def sendallplayers(update):
     con[1].send(update)
 
 def makemove(buffer):
+  global currentTurnIndex
   live_idnums = []
-  live_idnums.append(0)
-  live_idnums.append(1)
+  for player in playerID:
+    live_idnums.append(player[0])
 
   global board
   connection = playerID[currentTurnIndex][1]
@@ -80,13 +81,15 @@ def makemove(buffer):
   
         # pickup a new tile
         tileid = tiles.get_random_tileid()
-        print("added tile: ",tileid," to connection: ",playerID[currentTurnIndex][0])
         connection.send(tiles.MessageAddTileToHand(tileid).pack())
         connection.send(tiles.MessageAddTileToHand(tileid).pack())
   
-        for con in playerID:
+        for index,con in enumerate(playerID):
           if con[0] in eliminated:
             sendallplayers(tiles.MessagePlayerEliminated(con[0]).pack())
+            playerID.remove(con)
+            if(index <= currentTurnIndex):
+              currentTurnIndex -= 1
 
         nextturn()
         
@@ -98,32 +101,35 @@ def makemove(buffer):
         if board.set_player_start_position(msg.idnum, msg.x, msg.y, msg.position):
           # check for token movement
 
-          positionupdates, eliminated = board.do_player_movement(live_idnums) #CAHDNASDNSANDSANDNASDNASDNDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD
+          positionupdates, eliminated = board.do_player_movement(live_idnums)
 
           for msg in positionupdates:
             sendallplayers(tiles.MessageMoveToken(msg.idnum,msg.x,msg.y,msg.position).pack())
           
-          for con in playerID:
+          for index,con in enumerate(playerID):
             if con[0] in eliminated:
               sendallplayers(tiles.MessagePlayerEliminated(con[0]).pack())
+              playerID.remove(con)
+              if(index <= currentTurnIndex):
+                currentTurnIndex -= 1
 
           nextturn()
   
 def nextturn():
   global currentTurnIndex
-  if(currentTurnIndex == 0):#dumb af
-    currentTurnIndex=1
-  else: 
+  startgame()
+  print("Current turn index is;",currentTurnIndex,"\n")
+  print("Current players are;",playerID,"\n")
+  
+
+  if(currentTurnIndex == len(playerID)-1):
     currentTurnIndex=0
-    
+  else: 
+    currentTurnIndex +=1 
+
   sendallplayers(tiles.MessagePlayerTurn(playerID[currentTurnIndex][0]).pack())
 
           
-
-  
-
-
-
 def service_connection(key, mask):
   global currentTurnIndex
   sock = key.fileobj
@@ -133,7 +139,20 @@ def service_connection(key, mask):
       if not chunk:
         sel.unregister(sock)
         sock.close() #todo?
-        print("SHOULDNT GET HERE")
+
+        for index,con in enumerate(connectionID):
+          if(sock ==con[1]):
+            playerID.remove(con)
+            connectionID.remove(con)
+            sendallplayers(tiles.MessagePlayerEliminated(con[0]).pack())
+            sendallplayers(tiles.MessagePlayerLeft(con[0]).pack())
+            if(index == currentTurnIndex):
+              currentTurnIndex -= 1
+              nextturn()
+              return
+            if(index <currentTurnIndex):
+              currentTurnIndex -= 1
+
         print('client {} disconnected'.format(data.addr))
         return
       
@@ -144,63 +163,56 @@ def service_connection(key, mask):
       else: 
         return
 
-  if mask & selectors.EVENT_WRITE:
-      if data.outb:
-          print("SHOULDNT GET HERE")
-          print('echoing', repr(data.outb), 'to', data.addr)
-          sent = sock.send(data.outb)  # Should be ready to write
-          data.outb = data.outb[sent:]
 
 
 def accept_wrapper(sock):
+  global latestID
   connection, addr = sock.accept() 
   print('received connection from {}'.format(addr))
   connection.setblocking(False)
 
   data = types.SimpleNamespace(addr=addr, inb=b'', outb=b'')
-  events = selectors.EVENT_READ | selectors.EVENT_WRITE
+  events = selectors.EVENT_READ
   sel.register(connection, events, data=data)
 
   host, port = addr
   name = '{}:{}'.format(host, port)
   
-  idnum = len(connectionID)
+  latestID += 1
 
   #send all previous player names to current player
   for con in connectionID:
     connection.send(tiles.MessagePlayerJoined(con[2], con[0]).pack())
   
-  connectionID.append([idnum,connection,name])
-  connection.send(tiles.MessageWelcome(idnum).pack())
+  connectionID.append([latestID,connection,name])
+  connection.send(tiles.MessageWelcome(latestID).pack())
 
 #send current player name to all previous players
   for con in connectionID:
-    con[1].send(tiles.MessagePlayerJoined(name, idnum).pack())
+    con[1].send(tiles.MessagePlayerJoined(name, latestID).pack())
+  print("starting game")
+  startgame()
 
 
-  if(len(connectionID)>1):
-    startgame()
-
-
-      
 
 def startgame():
-  #TODO select players first
-  for con in connectionID:
-    playerID.append([con[0],con[1]])
-
+  global board
+  global playerID
   global currentTurnIndex
-  currentTurnIndex = random.randrange(0,len(playerID))
-  
-  for con in playerID:
-    con[1].send(tiles.MessageGameStart().pack())
-    
-    print("\nconnection: ",con[0], "has tiles:")
-    for _ in range(tiles.HAND_SIZE):
-      tileid = tiles.get_random_tileid()
-      print(tileid)
-      con[1].send(tiles.MessageAddTileToHand(tileid).pack())
-  nextturn()
+
+  if(len(connectionID)>= 2 and len(playerID) <= 1):
+    board.reset()
+    playerID = random.sample(connectionID, min(len(connectionID),4))
+    global currentTurnIndex
+    currentTurnIndex = random.randrange(0,len(playerID))
+
+    for player in playerID:
+      player[1].send(tiles.MessageGameStart().pack())
+      for _ in range(tiles.HAND_SIZE):
+        tileid = tiles.get_random_tileid()
+        print(tileid)
+        player[1].send(tiles.MessageAddTileToHand(tileid).pack())
+    nextturn()
   
 
 
@@ -208,8 +220,9 @@ def startgame():
 
 playerID = [] #list of current players in the form [id,socket]
 connectionID = [] #list of all connections in the form [id,socket]
-currentTurnIndex = 0 #the index in the array playerID of the current turn
+currentTurnIndex = -1 #the index in for turnIndex that holds the idnum of the current turn
 board = tiles.Board()
+latestID = -1
 
 while True:
     events = sel.select(timeout=None)
