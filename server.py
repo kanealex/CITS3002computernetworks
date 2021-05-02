@@ -22,7 +22,7 @@ import selectors
 import types 
 import random
 
-sel = selectors.DefaultSelector()
+
 
 # create a TCP/IP socket
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -30,18 +30,30 @@ sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 # listen on all network interfaces
 server_address = ('', 30020)
 sock.bind(server_address)
-
 print('listening on {}'.format(sock.getsockname()))
 
+#have a maximum backlog of 5 clients
 sock.listen(5)
-#5 is the backlog parameter
 sock.setblocking(False)
+
+#allow high level I/O multiplexing
+sel = selectors.DefaultSelector()
 sel.register(sock, selectors.EVENT_READ, data=None)
 
 
-def sendallplayers(update):
-  for con in playerID:
-    con[1].send(update)
+#global variables
+playerID = [] #list of current players in the form [id,socket]
+connectionID = [] #list of all connections in the form [id,socket]
+currentTurnIndex = -1 #the index in for turnIndex that holds the idnum of the current turn
+board = tiles.Board() #current board state
+latestID = -1 #last used ID when client joins
+
+
+
+
+
+
+
 
 def makemove(buffer):
   global currentTurnIndex
@@ -74,8 +86,6 @@ def makemove(buffer):
         # check for token movement
         positionupdates, eliminated = board.do_player_movement(live_idnums)
 
-        
-        
         for msg in positionupdates:
           sendallplayers(tiles.MessageMoveToken(msg.idnum,msg.x,msg.y,msg.position).pack())
   
@@ -90,7 +100,6 @@ def makemove(buffer):
             playerID.remove(con)
             if(index <= currentTurnIndex):
               currentTurnIndex -= 1
-
         nextturn()
         
         
@@ -115,12 +124,10 @@ def makemove(buffer):
 
           nextturn()
   
+
 def nextturn():
   global currentTurnIndex
   startgame()
-  print("Current turn index is;",currentTurnIndex,"\n")
-  print("Current players are;",playerID,"\n")
-  
 
   if(currentTurnIndex == len(playerID)-1):
     currentTurnIndex=0
@@ -129,7 +136,14 @@ def nextturn():
 
   sendallplayers(tiles.MessagePlayerTurn(playerID[currentTurnIndex][0]).pack())
 
-          
+
+
+def sendallplayers(update):
+  for con in playerID:
+    con[1].send(update)
+
+
+
 def service_connection(key, mask):
   global currentTurnIndex
   sock = key.fileobj
@@ -169,8 +183,8 @@ def accept_wrapper(sock):
   global latestID
   connection, addr = sock.accept() 
   print('received connection from {}'.format(addr))
-  connection.setblocking(False)
 
+  connection.setblocking(False)
   data = types.SimpleNamespace(addr=addr, inb=b'', outb=b'')
   events = selectors.EVENT_READ
   sel.register(connection, events, data=data)
@@ -190,7 +204,7 @@ def accept_wrapper(sock):
 #send current player name to all previous players
   for con in connectionID:
     con[1].send(tiles.MessagePlayerJoined(name, latestID).pack())
-  print("starting game")
+
   startgame()
 
 
@@ -202,7 +216,7 @@ def startgame():
 
   if(len(connectionID)>= 2 and len(playerID) <= 1):
     board.reset()
-    playerID = random.sample(connectionID, min(len(connectionID),4))
+    playerID = random.sample(connectionID, min(len(connectionID),tiles.PLAYER_LIMIT))
     global currentTurnIndex
     currentTurnIndex = random.randrange(0,len(playerID))
 
@@ -218,18 +232,16 @@ def startgame():
 
 
 
-playerID = [] #list of current players in the form [id,socket]
-connectionID = [] #list of all connections in the form [id,socket]
-currentTurnIndex = -1 #the index in for turnIndex that holds the idnum of the current turn
-board = tiles.Board()
-latestID = -1
 
+#infinite loop checking socket for incomming packages 
 while True:
     events = sel.select(timeout=None)
     for key, mask in events:
         if key.data is None:
-            accept_wrapper(key.fileobj)
+          #if no data; must be a new client connection
+          accept_wrapper(key.fileobj)
         else:
-            service_connection(key, mask)
+          #with data; exsiting client connection
+          service_connection(key, mask)
   
 
