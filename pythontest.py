@@ -1,9 +1,8 @@
+import threading
+def myfun():
+    print("hyohgfxdgfdhdfg")
 
+timer = threading.Timer(5,myfun)
 
-class chad:
-    x = []
-
-a = chad()
-
-if(a is None):
-    print("0ok")
+timer.start()
+timer.sleep(100)

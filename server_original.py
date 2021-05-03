@@ -63,7 +63,8 @@ def client_handler(connection, address):
       if isinstance(msg, tiles.MessagePlaceTile):
         if board.set_tile(msg.x, msg.y, msg.tileid, msg.rotation, msg.idnum):
           # notify client that placement was successful
-          connection.send(msg.pack())
+          #connection.send(msg.pack())
+          connection.send(tiles.MessagePlaceTile(msg.idnum, msg.tileid, msg.rotation, msg.x, msg.y).pack())
 
           # check for token movement
           positionupdates, eliminated = board.do_player_movement(live_idnums)

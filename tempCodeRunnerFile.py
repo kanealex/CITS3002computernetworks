@@ -1,2 +1,1 @@
-
-  gameRunning = True
+game.reset()
