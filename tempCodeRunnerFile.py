@@ -1,1 +1,2 @@
-newgame()
+
+  gameRunning = True

@@ -21,13 +21,14 @@ import tiles
 import selectors
 import types 
 import random
+import time
 
 class Gamestats:
   startingPlayers =[]
   currentPlayers = []
   eliminatedPlayers = []
-  placedTiles = [[]]
-  movetokens = [[]]
+  placedTiles = []
+  tokenMoves = []
   currentTurnIndex = -1 #the index in for turnIndex that holds the idnum of the current turn
 
 
@@ -89,7 +90,7 @@ def makemove(buffer):
       if board.set_tile(msg.x, msg.y, msg.tileid, msg.rotation, msg.idnum):
 
         sendallplayers(tiles.MessagePlaceTile(msg.idnum, msg.tileid, msg.rotation,msg.x, msg.y).pack())
-
+        game.placedTiles.append([msg.idnum, msg.tileid, msg.rotation,msg.x, msg.y])
         # notify client that placement was successful
         connection.send(msg.pack())
 
@@ -97,6 +98,7 @@ def makemove(buffer):
         positionupdates, eliminated = board.do_player_movement(live_idnums)
 
         for msg in positionupdates:
+          game.tokenMoves.append([msg.idnum,msg.x,msg.y,msg.position])
           sendallplayers(tiles.MessageMoveToken(msg.idnum,msg.x,msg.y,msg.position).pack())
   
         # pickup a new tile
@@ -139,7 +141,7 @@ def makemove(buffer):
 
 
 def systemPause():
-    pause = 0
+    time.sleep(3)
 
 
 def nextturn():
@@ -154,6 +156,7 @@ def nextturn():
     sendallplayers(tiles.MessagePlayerTurn(game.currentPlayers[game.currentTurnIndex][0]).pack())
   
   elif(len(connectionID)>= 2):       #if enough players to start a new game; start new game
+    print("should get here?")
     newgame()
 
   else: gameRunning = False          #else, stop game
@@ -181,14 +184,15 @@ def service_connection(key, mask):
             connectionID.remove(con)
             if(gameRunning and con[0] in game.startingPlayers and con[0] not in game.eliminatedPlayers): 
                 game.eliminatedPlayers.append(con[0])
-                game.currentPlayers.remove(con)  
+                game.currentPlayers.remove(con)
                 sendallplayers(tiles.MessagePlayerEliminated(idnum).pack())
                 if(index == game.currentTurnIndex):
                   game.currentTurnIndex -= 1
-                  nextturn()
                 elif(index <game.currentTurnIndex):
                   game.currentTurnIndex -= 1
-            else: sendallplayers(tiles.MessagePlayerLeft(idnum).pack())
+                nextturn()
+            else: #wasnt part of the game
+              sendallplayers(tiles.MessagePlayerLeft(idnum).pack())
             
 
         print('client {} disconnected'.format(data.addr))
@@ -228,7 +232,7 @@ def accept_wrapper(sock):
     con[1].send(tiles.MessagePlayerJoined(name, latestID).pack())
 
   if(gameRunning):
-    welcomeplayer()
+    updateplayer(len(connectionID)-1)
     if(len(game.currentPlayers)<= 1):
       newgame()
   elif(len(connectionID)>=2):
@@ -238,12 +242,17 @@ def accept_wrapper(sock):
 
 
 
-def welcomeplayer():
-  #TODO!!
-  connection = connectionID[latestID-1][1]
-  for player in game.startingPlayers:
+def updateplayer(connectID):
+  connection = connectionID[connectID][1]
+  for player in game.startingPlayers: #Notify the client of the id number of all players that started in the current game
     connection.send(tiles.MessagePlayerTurn(player).pack())
-  connection.send(tiles.MessagePlayerTurn(game.currentPlayers[game.currentTurnIndex][0]).pack())
+  for tile in game.placedTiles: #Notify the client of all token positions, for players that have a token position
+    connection.send(tiles.MessagePlaceTile(tile[0],tile[1],tile[2],tile[3],tile[4]).pack())
+  for token in game.tokenMoves: #Notify the client of all tiles that are already on the board
+    connection.send(tiles.MessageMoveToken(token[0],token[1],token[2],token[3]).pack())
+  for player in game.eliminatedPlayers: #Notify the client of all players that have been eliminated from the current game
+    connection.send(tiles.MessagePlayerEliminated(player).pack())
+  connection.send(tiles.MessagePlayerTurn(game.currentPlayers[game.currentTurnIndex][0]).pack()) #Notify the client of the real current turn
 
 
 
@@ -256,9 +265,9 @@ def newgame():
   global game
   global gameRunning
   systemPause()
+  board.reset()
   game = Gamestats()
   gameRunning = True
-  board.reset()
   game.currentPlayers = random.sample(connectionID, min(len(connectionID),tiles.PLAYER_LIMIT))
   game.currentTurnIndex = random.randrange(0,len(game.currentPlayers))
 
@@ -268,6 +277,10 @@ def newgame():
     for _ in range(tiles.HAND_SIZE):
       tileid = tiles.get_random_tileid()
       player[1].send(tiles.MessageAddTileToHand(tileid).pack())
+
+  for player in game.currentPlayers: #Notify the players of the id number of all other players 
+    for idnum in game.startingPlayers:
+      player[1].send(tiles.MessagePlayerTurn(idnum).pack())
   nextturn()
 
 
