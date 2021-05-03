@@ -58,6 +58,7 @@ connectionID = [] #list of all connections in the form [id,socket]
 board = tiles.Board() #current board state
 latestID = -1 #last used ID when client joins
 game = Gamestats()
+gameRunning = False
 
 
 
@@ -107,6 +108,7 @@ def makemove(buffer):
           if player[0] in eliminated:
             sendallplayers(tiles.MessagePlayerEliminated(player[0]).pack())
             game.currentPlayers.remove(player)
+            game.eliminatedPlayers.append(player[0])
             if(index <= game.currentTurnIndex):
               game.currentTurnIndex -= 1
         nextturn()
@@ -128,6 +130,7 @@ def makemove(buffer):
             if player[0] in eliminated:
               sendallplayers(tiles.MessagePlayerEliminated(player[0]).pack())
               game.currentPlayers.remove(player)
+              game.eliminatedPlayers.append(player[0])
               if(index <= game.currentTurnIndex):
                 game.currentTurnIndex -= 1
 
@@ -140,23 +143,25 @@ def systemPause():
 
 
 def nextturn():
-  global game #dont know if need
-  if(len(game.currentPlayers) <= 1 and len(connectionID)>= 2):
-    systemPause()
-    newgame()
-  elif(len(game.currentPlayers) > 1):
+  global game
+  global gameRunning
+
+  if(len(game.currentPlayers) >= 2): #if enough players that game can continue; continue playing
     if(game.currentTurnIndex == len(game.currentPlayers)-1):
       game.currentTurnIndex=0
     else: 
       game.currentTurnIndex +=1 
-
     sendallplayers(tiles.MessagePlayerTurn(game.currentPlayers[game.currentTurnIndex][0]).pack())
-  else: game = Gamestats()
+  
+  elif(len(connectionID)>= 2):       #if enough players to start a new game; start new game
+    newgame()
+
+  else: gameRunning = False          #else, stop game
 
 
 
 def sendallplayers(update):
-  for player in game.currentPlayers:
+  for player in connectionID:
     player[1].send(update)
 
 
@@ -172,25 +177,27 @@ def service_connection(key, mask):
 
         for index,con in enumerate(connectionID):
           if(sock == con[1]):
-            game.currentPlayers.remove(con)
+            idnum = con[0]
             connectionID.remove(con)
-            sendallplayers(tiles.MessagePlayerEliminated(con[0]).pack())
-            sendallplayers(tiles.MessagePlayerLeft(con[0]).pack())
-            if(index == game.currentTurnIndex):
-              game.currentTurnIndex -= 1
-              nextturn()
-              return
-            if(index <game.currentTurnIndex):
-              game.currentTurnIndex -= 1
+            if(gameRunning and con[0] in game.startingPlayers and con[0] not in game.eliminatedPlayers): 
+                game.eliminatedPlayers.append(con[0])
+                game.currentPlayers.remove(con)  
+                sendallplayers(tiles.MessagePlayerEliminated(idnum).pack())
+                if(index == game.currentTurnIndex):
+                  game.currentTurnIndex -= 1
+                  nextturn()
+                elif(index <game.currentTurnIndex):
+                  game.currentTurnIndex -= 1
+            else: sendallplayers(tiles.MessagePlayerLeft(idnum).pack())
+            
 
         print('client {} disconnected'.format(data.addr))
         return
       
       buffer = bytearray()
       buffer.extend(chunk)
-      if(game is not None):
-        if(sock == game.currentPlayers[game.currentTurnIndex][1]):
-            makemove(buffer)
+      if(sock == game.currentPlayers[game.currentTurnIndex][1] and gameRunning):
+        makemove(buffer)
 
 
 
@@ -216,17 +223,28 @@ def accept_wrapper(sock):
   connectionID.append([latestID,connection,name])
   connection.send(tiles.MessageWelcome(latestID).pack())
 
-#send current player name to all previous players
+  #send current player name to all previous players
   for con in connectionID:
     con[1].send(tiles.MessagePlayerJoined(name, latestID).pack())
 
-  if(game is None and len(connectionID)>2):
-    systemPause()
+  if(gameRunning):
+    welcomeplayer()
+    if(len(game.currentPlayers)<= 1):
+      newgame()
+  elif(len(connectionID)>=2):
     newgame()
-  elif(len(game.currentPlayers)<= 1):
-    systemPause()
-    newgame()
-  
+
+
+
+
+
+def welcomeplayer():
+  #TODO!!
+  connection = connectionID[latestID-1][1]
+  for player in game.startingPlayers:
+    connection.send(tiles.MessagePlayerTurn(player).pack())
+  connection.send(tiles.MessagePlayerTurn(game.currentPlayers[game.currentTurnIndex][0]).pack())
+
 
 
 
@@ -236,16 +254,19 @@ def accept_wrapper(sock):
 
 def newgame():
   global game
+  global gameRunning
+  systemPause()
   game = Gamestats()
+  gameRunning = True
   board.reset()
   game.currentPlayers = random.sample(connectionID, min(len(connectionID),tiles.PLAYER_LIMIT))
   game.currentTurnIndex = random.randrange(0,len(game.currentPlayers))
 
   for player in game.currentPlayers:
     player[1].send(tiles.MessageGameStart().pack())
+    game.startingPlayers.append(player[0])
     for _ in range(tiles.HAND_SIZE):
       tileid = tiles.get_random_tileid()
-      print(tileid)
       player[1].send(tiles.MessageAddTileToHand(tileid).pack())
   nextturn()
 
