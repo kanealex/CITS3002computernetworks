@@ -11,27 +11,6 @@ import numpy as np
 WAITTIME = 10
 SLEEPTIME = 3
 
-"""
-BUGS TO  CHECK
-
-Add 4 players
- remove 1 from the starting 1v1 game
-
-remove another 1 from the new 3v3 game
-
-make a new client join
-
-TODO 
-
-MessageCountdown(): :O?
-
-"""
-
-
-
-
-
-
 
 
 class Socket:
@@ -166,7 +145,7 @@ def update_player():
     all active clients. If a game is running, all game state changes are sent to player aswell.
     """
     connection = connectedClients[latestID].socketID
-
+    
     # inform new player of existing players
     for index in range(len(connectedClients)):
         if(connectedClients[index] is not None):
@@ -305,7 +284,6 @@ def new_game():
     global gameRunning
     global game
     print("New Game Started!")
-    send_to_all(tiles.MessageCountdown().pack())
     time.sleep(SLEEPTIME)
     board.reset()
     gameRunning = True
@@ -354,6 +332,7 @@ def accept_new_connection(sock):
     if(not gameRunning and len(send_to_all(None)) >= 2):
         new_game()
 
+
 def accept_client_data(key, mask):
     """
     Handles new data as recieved by socket from prevously registered clients. If the data sent
@@ -393,6 +372,9 @@ def accept_client_data(key, mask):
                         # wasnt part of the game
                         send_to_all(tiles.MessagePlayerLeft(idnum).pack())
                     return
+                # else:
+                #     if(len(send_to_all(None)) > 1):  # wasnt part of the game
+                #         send_to_all(tiles.MessagePlayerLeft(idnum).pack())
 
             return
 
@@ -400,7 +382,6 @@ def accept_client_data(key, mask):
         buffer.extend(chunk)
         if(sock == connectedClients[game.activePlayers[game.currentTurnId]].socketID and gameRunning):
             make_move(buffer)
-
 
 
 

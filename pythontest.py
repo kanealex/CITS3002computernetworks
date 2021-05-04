@@ -5,4 +5,3 @@ def myfun():
 timer = threading.Timer(5,myfun)
 
 timer.start()
-timer.sleep(100)
