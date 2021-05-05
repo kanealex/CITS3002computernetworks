@@ -9,32 +9,12 @@ import copy
 import numpy as np
 
 WAITTIME = 10
-SLEEPTIME = 3
-
-"""
-BUGS TO  CHECK
-
-Add 4 players
- remove 1 from the starting 1v1 game
-
-remove another 1 from the new 3v3 game
-
-make a new client join
-
-TODO 
-
-MessageCountdown(): :O?
-
-"""
-
-
-
-
-
-
-
+SLEEPTIME = 1
 
 class Socket:
+    """
+    Holds data for each socket connection.
+    """
     name = ''
     socketID = None
     currentTiles = [None, None, None, None]
@@ -48,10 +28,14 @@ class Socket:
 
 
 class Gamestats:
+    """
+    Holds data for currently running game.
+    """
     activePlayers = []
     eliminatedPlayers = []
     placedTiles = []
     tokenMoves = []
+    startingPlayers = []
     timeoutTimer = threading.Timer(WAITTIME, None)
     currentTurnId = None
 
@@ -61,6 +45,7 @@ class Gamestats:
         self.placedTiles.clear()
         self.tokenMoves.clear()
         self.eliminatedPlayers.clear()
+        self.startingPlayers.clear()
 
 
 #global variables
@@ -150,6 +135,7 @@ def send_to_all(msg):
     If 'msg' is None, no messages are sent but still returns array of idnums.
     """
     numberActive = []
+    numberActive.clear()
     for idnum in range(len(connectedClients)):
         if(connectedClients[idnum] is not None):
             if(msg is not None and connectedClients[idnum].active):
@@ -170,18 +156,14 @@ def update_player():
     # inform new player of existing players
     for index in range(len(connectedClients)):
         if(connectedClients[index] is not None):
-            if(connectedClients[index].active):
-                connection.send(tiles.MessagePlayerJoined(
-                    connectedClients[index].name, index).pack())
+            connection.send(tiles.MessagePlayerJoined(connectedClients[index].name, index).pack())
         else:
             break
 
     if(gameRunning):
         print("new client")
         # notify player of the id number of all players that started in the current game
-        for player in game.activePlayers: 
-            connection.send(tiles.MessagePlayerTurn(player).pack())
-        for player in game.eliminatedPlayers:
+        for player in game.startingPlayers: 
             connection.send(tiles.MessagePlayerTurn(player).pack())
         # notify player of all token positions 
         for tile in game.placedTiles:  
@@ -286,7 +268,7 @@ def next_turn():
         game.timeoutTimer.start()
         send_to_all(tiles.MessagePlayerTurn(
             game.activePlayers[game.currentTurnId]).pack())
-        print("Move complete, next move:", game.activePlayers[game.currentTurnId])
+        print("Move complete, next move by id:", game.activePlayers[game.currentTurnId])
     elif(len(send_to_all(None)) >= 2):  # else if enough players to start a new game; start new game
         new_game()
 
@@ -304,7 +286,7 @@ def new_game():
     """
     global gameRunning
     global game
-    print("New Game Started!")
+    print("\nNew Game Started!")
     send_to_all(tiles.MessageCountdown().pack())
     time.sleep(SLEEPTIME)
     board.reset()
@@ -316,8 +298,12 @@ def new_game():
     game = Gamestats(sample, turn)
     send_to_all(tiles.MessageGameStart().pack())
 
+
     for idnum in game.activePlayers:
+        game.startingPlayers.append(idnum)
         send_to_all(tiles.MessagePlayerTurn(idnum).pack())
+    
+    print("Idnums in current game:",game.startingPlayers)
 
     for idnum in game.activePlayers:
         for index in range(tiles.HAND_SIZE):
@@ -380,7 +366,6 @@ def accept_client_data(key, mask):
                             if(game.activePlayers[game.currentTurnId] == idnum):
                                 game.timeoutTimer.cancel()
                                 game.currentTurnId -= 1
-                                send_to_all(tiles.MessagePlayerLeft(idnum).pack())
                             else:  # correct current run index if player removed was before it
                                 for index, playerID in enumerate(game.activePlayers):
                                     if(idnum == playerID and index < game.currentTurnId):
@@ -388,10 +373,10 @@ def accept_client_data(key, mask):
                                     elif(idnum == playerID):
                                         game.currentTurnId -= 1
                             game.activePlayers.remove(idnum)
+                            send_to_all(tiles.MessagePlayerLeft(idnum).pack())
                             next_turn()
-                    else:
                         # wasnt part of the game
-                        send_to_all(tiles.MessagePlayerLeft(idnum).pack())
+                       # send_to_all(tiles.MessagePlayerLeft(idnum).pack())
                     return
 
             return
@@ -406,7 +391,7 @@ def accept_client_data(key, mask):
 
 
 
-# infinite loop checking socket for incomming packages
+# infinite loop checking socket for incoming packages
 while True:
     events = sel.select(timeout=None)
     for key, mask in events:
