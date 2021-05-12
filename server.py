@@ -8,8 +8,8 @@ import time
 import copy
 import numpy as np
 
-WAITTIME = 10
-SLEEPTIME = 1
+WAITTIME = 10 #waittime till auto move
+SLEEPTIME = 0 #sleep time between games
 
 class Socket:
     """
@@ -108,6 +108,8 @@ class Server:
                 for index, elim in enumerate(self.game.activePlayers):
                     if(idnum == elim and index <= self.game.currentTurnId):
                         self.game.currentTurnId -= 1
+
+
                 self.game.activePlayers.remove(idnum)
 
         self.next_turn()
